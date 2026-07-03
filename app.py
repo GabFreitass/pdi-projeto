@@ -160,20 +160,34 @@ def obter_modelo(objeto, arquitetura):
 
 
 # -----------------------------------------------------------------------------
-# Pré-processamento opcional (aplicado antes da inferência). Entrada/saída BGR.
+# Pré-processamento — FIXO por modelo (não é controle da UI).
+# O filtro na inferência precisa ser idêntico ao usado no treino; por isso cada
+# modelo tem o seu, definido no mapa PREPROC. Trocar o pré-processamento de um
+# modelo = mudar UMA linha no dicionário, sem tocar no resto do código.
 # -----------------------------------------------------------------------------
-def preprocess(img_bgr):
-    """Realce leve com OpenCV: CLAHE no canal de luminância + blur gaussiano."""
-    # 1) CLAHE no canal L (luminância) do espaço LAB -> melhora o contraste local
+def sem_preproc(img_bgr):
+    """Nenhum filtro — a imagem segue direto para o modelo."""
+    return img_bgr
+
+
+def clahe_blur(img_bgr):
+    """Exemplo pronto para uso, caso algum modelo precise. NÃO usar por padrão."""
     lab = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2LAB)
     l, a, b = cv2.split(lab)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-    l = clahe.apply(l)
-    img_bgr = cv2.cvtColor(cv2.merge((l, a, b)), cv2.COLOR_LAB2BGR)
+    l = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(l)
+    img = cv2.cvtColor(cv2.merge((l, a, b)), cv2.COLOR_LAB2BGR)
+    return cv2.GaussianBlur(img, (3, 3), 0)
 
-    # 2) Gaussian blur leve (kernel 3x3) -> suaviza ruído fino
-    img_bgr = cv2.GaussianBlur(img_bgr, (3, 3), 0)
-    return img_bgr
+
+# Mapa fixo (objeto, arquitetura) -> função de pré-processamento.
+# AJUSTAR aqui se algum modelo foi treinado com pré-processamento específico
+# (ex.: trocar sem_preproc por clahe_blur na linha do modelo).
+PREPROC = {
+    ("Maçãs",    "YOLOv8n"):       sem_preproc,   # AJUSTAR se necessário
+    ("Garrafas", "YOLOv8n"):       sem_preproc,   # AJUSTAR se necessário
+    ("Maçãs",    "SSD-MobileNet"): sem_preproc,   # confirmado: sem filtro (só ToTensor)
+    ("Garrafas", "SSD-MobileNet"): sem_preproc,   # confirmado: sem filtro (só ToTensor)
+}
 
 
 # -----------------------------------------------------------------------------
@@ -257,15 +271,14 @@ def bytes_para_bgr(buf):
     return cv2.imdecode(dados, cv2.IMREAD_COLOR)
 
 
-def processar_estatico(img_bgr, objeto, arquitetura, conf, usar_preproc):
+def processar_estatico(img_bgr, objeto, arquitetura, conf):
     """Detecção numa imagem ÚNICA (upload ou foto) + exibição de imagem e tabela.
 
     Reaproveitada pelo modo Imagem e pelo fallback de foto da Webcam. Mostra erros
     amigáveis via st.error — nunca deixa stack trace na tela.
     """
-    # pré-processamento opcional (fácil de ligar/desligar pelo checkbox)
-    if usar_preproc:
-        img_bgr = preprocess(img_bgr)
+    # pré-processamento FIXO do modelo escolhido (ver mapa PREPROC)
+    img_bgr = PREPROC[(objeto, arquitetura)](img_bgr)
 
     # carrega o modelo da combinação escolhida (cacheado)
     modelo, erro = obter_modelo(objeto, arquitetura)
@@ -328,7 +341,6 @@ with st.sidebar:
     objeto = st.radio("Objeto", ["Maçãs", "Garrafas"])
     arquitetura = st.radio("Arquitetura", ["YOLOv8n", "SSD-MobileNet"])
     entrada = st.radio("Entrada", ["Imagem", "Webcam"])
-    usar_preproc = st.checkbox("Pré-processamento (CLAHE + blur)", value=False)
     conf = st.slider("Confiança", 0.0, 1.0, CONF_DEFAULT, 0.01)
     executar = st.button("Executar", type="primary", width='stretch')
 
@@ -344,7 +356,7 @@ if entrada == "Imagem":
             if img_bgr is None:
                 st.error("Não foi possível ler a imagem. Tente outro arquivo.")
             else:
-                processar_estatico(img_bgr, objeto, arquitetura, conf, usar_preproc)
+                processar_estatico(img_bgr, objeto, arquitetura, conf)
 
 else:  # entrada == "Webcam"
     # Modo Webcam: preferencial = detecção AO VIVO (streamlit-webrtc); se a lib não
@@ -359,9 +371,9 @@ else:  # entrada == "Webcam"
         usar_webrtc = WEBRTC_OK
         if WEBRTC_OK:
             # O callback é recriado a cada rerun, capturando os valores ATUAIS dos
-            # controles (objeto/arquitetura/conf/pré-proc) — assim o slider e os
-            # radios atualizam a detecção ao vivo. Roda em OUTRA thread: nada de
-            # st.* aqui dentro, e tudo em try/except para nunca derrubar o stream.
+            # controles (objeto/arquitetura/conf) — assim o slider e os radios
+            # atualizam a detecção ao vivo. Roda em OUTRA thread: nada de st.* aqui
+            # dentro, e tudo em try/except para nunca derrubar o stream.
             def _cb(frame):
                 img = frame.to_ndarray(format="bgr24")
                 try:
@@ -369,8 +381,8 @@ else:  # entrada == "Webcam"
                     h, w = img.shape[:2]
                     if w > 640:
                         img = cv2.resize(img, (640, int(h * 640 / w)))
-                    if usar_preproc:
-                        img = preprocess(img)
+                    # pré-processamento FIXO do modelo escolhido (ver mapa PREPROC)
+                    img = PREPROC[(objeto, arquitetura)](img)
                     if arquitetura == "YOLOv8n":
                         dets = detectar_yolo(modelo, img, conf, nome_classe)
                     else:
@@ -409,4 +421,4 @@ else:  # entrada == "Webcam"
                     if img_bgr is None:
                         st.error("Não foi possível ler a imagem. Tente novamente.")
                     else:
-                        processar_estatico(img_bgr, objeto, arquitetura, conf, usar_preproc)
+                        processar_estatico(img_bgr, objeto, arquitetura, conf)
