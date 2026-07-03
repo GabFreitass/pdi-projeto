@@ -1,0 +1,4 @@
+# Tema do app — mantém a paleta permitida (laranja de destaque + azul/branco).
+# Afeta botão, slider, radios e checkbox (cor de destaque do Streamlit).
+[theme]
+primaryColor = "#FF5B00"

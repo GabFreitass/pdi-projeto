@@ -1,0 +1,10 @@
+streamlit
+ultralytics
+torch
+torchvision
+opencv-python
+numpy
+pillow
+# Webcam ao vivo (opcional): puxa av/aiortc como wheels. Se a instalação falhar,
+# o app ainda roda — o modo Webcam cai automaticamente para captura de foto.
+streamlit-webrtc

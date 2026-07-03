@@ -1,0 +1,13 @@
+# Pesos dos modelos (grandes; não versionar)
+models/*.pt
+models/*.pth
+
+# Python
+__pycache__/
+*.pyc
+
+# Ambiente virtual
+.venv/
+venv/
+
+.playwright-mcp/
